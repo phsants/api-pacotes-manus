@@ -5,7 +5,7 @@ const path = require("path");
 
 dotenv.config();
 
-const manusRoutes = require("./routes/azulRoutes");
+const azulRoutes = require("./routes/azulRoutes");
 const authRoutes = require("./routes/authRoutes");
 const pesquisaRoutes = require("./routes/pesquisaRoutes");
 
