@@ -18,13 +18,13 @@ app.use(express.json());
 // Rotas da API
 app.use("/api", authRoutes);
 app.use("/api", pesquisaRoutes);
-app.use("/manus", azulRoutes);
+app.use("/api", azulRoutes);
 
 // Frontend (se houver)
-app.use(express.static(path.join(__dirname, "../frontend-build")));
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../frontend-build/index.html"));
-});
+//app.use(express.static(path.join(__dirname, "../dist")));
+//app.get("*", (req, res) => {
+//  res.sendFile(path.join(__dirname, "../dist/index.html"));
+//});
 
 app.listen(port, () => {
   console.log(`Servidor rodando na porta ${port}`);
