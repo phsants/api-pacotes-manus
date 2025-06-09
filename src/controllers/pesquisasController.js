@@ -45,136 +45,189 @@ const getAeroportos = async (req, res) => {
   }
 };
 
-const getVoos = async (req, res) => {
-  // Implementar filtros baseados em query params
-  const {
-    origem,
-    destino,
-    data_ida,
-    data_volta,
-    preco_min,
-    preco_max,
-    companhia,
-    conexoes,
-    hotel,
-    categoria_hotel
-  } = req.query;
-
+const getHoteis = async (req, res) => {
   try {
+    const {
+      origem,
+      destino,
+      nome_hotel,
+      preco_min,
+      preco_max,
+      conexao,
+      periodo,
+      data_inicio,
+      data_fim
+    } = req.query;
+
     let query = `
       SELECT
-        v.id,
-        v.origem,
-        v.destino,
-        v.data_ida,
-        v.data_volta,
-        v.companhia,
-        v.numero_voo,
-        v.tipo_aviao,
-        v.classe,
-        v.partida_data,
-        v.partida_hora,
-        v.partida_aeroporto,
-        v.chegada_data,
-        v.chegada_hora,
-        v.chegada_aeroporto,
-        v.criado_em AS data_pesquisa,
-        p.cliente_nome,
-        p.tipo_voo,
-        p.adultos,
-        p.criancas,
-        p.bebes,
-        p.apartamento,
-        h.nome_hotel,
-        h.preco_por_pessoa AS preco,
-        h.preco_total_pacote,
-        EXTRACT(EPOCH FROM (h.data_volta::timestamp - h.data_ida::timestamp)) / 60 AS tempo_voo,
-        CASE WHEN POSITION(',' IN v.numero_voo) > 0 THEN 1 ELSE 0 END AS qtd_conexoes,
-        CASE
-          WHEN h.nome_hotel ILIKE '%5%' THEN 5
-          WHEN h.nome_hotel ILIKE '%4%' THEN 4
-          WHEN h.nome_hotel ILIKE '%3%' THEN 3
-          ELSE 0
-        END AS categoria_hotel
-      FROM voos v
-      LEFT JOIN pesquisas p ON v.pesquisa_id = p.id
-      LEFT JOIN hoteis h ON h.pesquisa_id = v.pesquisa_id
-        AND h.origem = v.origem
-        AND h.destino = v.destino
-        AND h.data_ida = v.data_ida
-        AND h.data_volta = v.data_volta
-      WHERE 1=1
+        origem,
+        destino,
+        data_ida,
+        data_volta,
+        nome_hotel,
+        tipo_quarto,
+        refeicao,
+        preco_total_pacote,
+        preco_por_pessoa,
+        criado_em AS data_pesquisa,
+        id_execucao
+      FROM hoteis
     `;
 
-    const params = [];
-    let paramIndex = 1;
+    const conditions = [];
+    const values = [];
 
-    // Adicionar filtros condicionais
     if (origem) {
-      query += ` AND v.origem = $${paramIndex++}`;
-      params.push(origem);
+      const origens = Array.isArray(origem) ? origem : [origem];
+      const placeholders = origens.map((_, idx) => `$${values.length + idx + 1}`);
+      conditions.push(`origem IN (${placeholders.join(', ')})`);
+      values.push(...origens);
     }
 
     if (destino) {
-      query += ` AND v.destino = $${paramIndex++}`;
-      params.push(destino);
+      const destinos = Array.isArray(destino) ? destino : [destino];
+      const placeholders = destinos.map((_, idx) => `$${values.length + idx + 1}`);
+      conditions.push(`destino IN (${placeholders.join(', ')})`);
+      values.push(...destinos);
     }
 
-    if (data_ida) {
-      query += ` AND v.data_ida = $${paramIndex++}`;
-      params.push(data_ida);
-    }
-
-    if (data_volta) {
-      query += ` AND v.data_volta = $${paramIndex++}`;
-      params.push(data_volta);
+    if (nome_hotel) {
+      const hoteis = Array.isArray(nome_hotel) ? nome_hotel : [nome_hotel];
+      const placeholders = hoteis.map((_, idx) => `$${values.length + idx + 1}`);
+      conditions.push(`nome_hotel IN (${placeholders.join(', ')})`);
+      values.push(...hoteis);
     }
 
     if (preco_min) {
-      query += ` AND h.preco_total_pacote >= $${paramIndex++}`;
-      params.push(parseFloat(preco_min));
+      conditions.push(`preco_total_pacote >= $${values.length + 1}`);
+      values.push(Number(preco_min));
     }
 
     if (preco_max) {
-      query += ` AND h.preco_total_pacote <= $${paramIndex++}`;
-      params.push(parseFloat(preco_max));
+      conditions.push(`preco_total_pacote <= $${values.length + 1}`);
+      values.push(Number(preco_max));
     }
 
-    if (companhia) {
-      query += ` AND v.companhia = $${paramIndex++}`;
-      params.push(companhia);
-    }
-
-    if (conexoes === 'direto') {
-      query += ` AND POSITION(',' IN v.numero_voo) = 0`;
-    } else if (conexoes === 'conexao') {
-      query += ` AND POSITION(',' IN v.numero_voo) > 0`;
-    }
-
-    if (hotel === 'true' || hotel === true) {
-      query += ` AND h.nome_hotel IS NOT NULL`;
-
-      if (categoria_hotel) {
-        query += ` AND (
-          CASE
-            WHEN h.nome_hotel ILIKE '%5%' THEN 5
-            WHEN h.nome_hotel ILIKE '%4%' THEN 4
-            WHEN h.nome_hotel ILIKE '%3%' THEN 3
-            ELSE 0
-          END
-        ) = $${paramIndex++}`;
-        params.push(parseInt(categoria_hotel));
+    if (conexao) {
+      if (conexao === 'direto') {
+        conditions.push(`id_execucao IN (
+          SELECT id_execucao
+          FROM voos
+          GROUP BY id_execucao
+          HAVING COUNT(*) = 1
+        )`);
+      } else if (conexao === 'conexao') {
+        conditions.push(`id_execucao IN (
+          SELECT id_execucao
+          FROM voos
+          GROUP BY id_execucao
+          HAVING COUNT(*) > 1
+        )`);
       }
     }
 
-    query += ` ORDER BY v.criado_em DESC`;
+    // Filtro por intervalo manual de datas de pesquisa
+    if (data_inicio) {
+      conditions.push(`criado_em >= $${values.length + 1}`);
+      values.push(new Date(data_inicio));
+    }
 
-    const result = await pool.query(query, params);
+    if (data_fim) {
+      conditions.push(`criado_em <= $${values.length + 1}`);
+      values.push(new Date(data_fim));
+    }
+
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY criado_em DESC';
+
+    const result = await pool.query(query, values);
     res.json(result.rows);
-  } catch (error) {
-    console.error("Erro ao buscar voos:", error);
-    res.status(500).json({ error: "Erro ao buscar voos" });
+  } catch (err) {
+    console.error("Erro ao buscar hotéis com filtros:", err);
+    res.status(500).json({ error: "Erro ao buscar hotéis com filtros" });
   }
 };
 
-module.exports = { getCidades, getAeroportos, getVoos };
+const getVoosByExecucao = async (req, res) => {
+  const { id_execucao } = req.params;
+
+  if (!id_execucao) {
+    return res.status(400).json({ error: "Parâmetro 'id_execucao' é obrigatório." });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        companhia,
+        numero_voo,
+        tipo_aviao,
+        classe,
+        partida_data,
+        partida_hora,
+        partida_aeroporto,
+        chegada_data,
+        chegada_hora,
+        chegada_aeroporto
+      FROM voos
+      WHERE id_execucao = $1
+      ORDER BY partida_data ASC, partida_hora ASC
+      `,
+      [id_execucao]
+    );
+
+    const voos = result.rows;
+
+    if (voos.length === 0) {
+      return res.status(404).json({ error: "Nenhum voo encontrado para o 'id_execucao' fornecido." });
+    }
+
+    // Função para converter data e hora em objeto Date
+    const parseDateTime = (data, hora) => {
+      const [dia, mes, ano] = data.split("/").map(Number);
+      const [horaPartida, minutoPartida] = hora.split(":").map(Number);
+      return new Date(ano, mes - 1, dia, horaPartida, minutoPartida);
+    };
+
+    // Adiciona campos de data/hora completas para ordenação precisa
+    voos.forEach(voo => {
+      voo.partidaDateTime = parseDateTime(voo.partida_data, voo.partida_hora);
+      voo.chegadaDateTime = parseDateTime(voo.chegada_data, voo.chegada_hora);
+    });
+
+    // Ordena os voos por data/hora de partida
+    voos.sort((a, b) => a.partidaDateTime - b.partidaDateTime);
+
+    // Determina a data de ida (primeira data de partida)
+    const dataIda = voos[0].partida_data;
+
+    // Separa os voos de ida e volta com base na data de ida
+    const trechoIda = voos.filter(voo => voo.partida_data === dataIda);
+    const trechoVolta = voos.filter(voo => voo.partida_data !== dataIda);
+
+    // Remove os campos auxiliares antes de retornar
+    trechoIda.forEach(voo => {
+      delete voo.partidaDateTime;
+      delete voo.chegadaDateTime;
+    });
+    trechoVolta.forEach(voo => {
+      delete voo.partidaDateTime;
+      delete voo.chegadaDateTime;
+    });
+
+    res.json({
+      ida: trechoIda,
+      volta: trechoVolta
+    });
+  } catch (err) {
+    console.error("Erro ao buscar voos:", err);
+    res.status(500).json({ error: "Erro ao buscar voos." });
+  }
+};
+
+module.exports = { getCidades, getAeroportos, getHoteis, getVoosByExecucao };
